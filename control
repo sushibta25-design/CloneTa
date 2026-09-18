@@ -1,9 +1,9 @@
-Package: com.sushibta.vmlspeedbubble
-Name: VMLSpeedBubble
-Version: 16.33-duodash-hostbridge1
-Architecture: iphoneos-arm64e
-Description: DuoDash host-aware VML bubble: attaches beside CNABBubbleView in the exact DuoDash host hierarchy, with hosted-surface fallback for DuoPhone/other split hosts.
+Package: com.talab.bubblelab
+Name: BubbleLab
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Clean CarPlay overlay baseline lab.
 Maintainer: sushibta25-design
 Author: sushibta25-design
 Section: Tweaks
-Depends: mobilesubstrate | ellekit
+Depends: mobilesubstrate
