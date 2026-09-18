@@ -1,49 +1,21 @@
-name: Build VMLSpeedBubble
-
+name: Build BubbleLab
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-
+    branches: [ main ]
 jobs:
   build:
-    runs-on: macos-14
-
+    runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
+      - uses: actions/checkout@v4
+      - name: Install Theos
         run: |
-          brew install ldid xz
-
-      - name: Clone RootHide Theos
-        run: |
-          export THEOS=$HOME/theos
-          git clone --recursive https://github.com/roothide/theos.git $THEOS
-
-      - name: Install iOS 16.5 SDK
-        run: |
-          export THEOS=$HOME/theos
-          mkdir -p $THEOS/sdks
-
-          curl -L \
-            https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
-            -o /tmp/iPhoneOS16.5.sdk.tar.xz
-
-          tar -xJf /tmp/iPhoneOS16.5.sdk.tar.xz \
-            -C $THEOS/sdks
-
-          ls -la $THEOS/sdks
-
-      - name: Build RootHide package
-        run: |
-          export THEOS=$HOME/theos
-          make clean package FINALPACKAGE=1
-
-      - name: Upload DEB
-        uses: actions/upload-artifact@v4
+          brew install ldid
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+      - name: Build package
+        run: make package FINALPACKAGE=1
+      - uses: actions/upload-artifact@v4
         with:
-          name: VMLSpeedBubble-RootHide
+          name: BubbleLab-deb
           path: packages/*.deb
