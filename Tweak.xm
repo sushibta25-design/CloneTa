@@ -550,89 +550,43 @@ static NSUInteger VMLHostedSceneLayerCount(UIView *view, NSUInteger depth) {
     return count;
 }
 
-static UIWindow *VMLFindDuoDashHostWindowAnyScene(UIWindowScene *preferredScene,
-                                                   NSUInteger *hostCountOut,
-                                                   UIWindowScene **hostSceneOut);
-
-static UIWindow *VMLFindDuoDashHostWindowAnyScene(UIWindowScene *preferredScene,
-                                                   NSUInteger *hostCountOut,
-                                                   UIWindowScene **hostSceneOut) {
+static UIWindow *VMLFindDuoDashHostWindow(UIWindowScene *scene, NSUInteger *hostCountOut) {
     UIWindow *best=nil;
     NSUInteger bestCount=0;
     CGFloat bestGeometryScore=-CGFLOAT_MAX;
-    UIWindowScene *bestScene=nil;
+    CGRect sceneBounds=scene.coordinateSpace.bounds;
 
-    NSMutableArray<UIWindowScene *> *candidateScenes=[NSMutableArray array];
-    if (preferredScene) [candidateScenes addObject:preferredScene];
-    for (UIScene *raw in UIApplication.sharedApplication.connectedScenes) {
-        if (![raw isKindOfClass:UIWindowScene.class]) continue;
-        UIWindowScene *ws=(UIWindowScene *)raw;
-        if (ws==preferredScene) continue;
-        if (!VMLSceneLooksCarPlay(ws)) continue;
-        [candidateScenes addObject:ws];
-    }
+    for (UIWindow *window in scene.windows) {
+        if (!window || window==gCarPlayOverlayWindow || window.hidden || window.alpha<=0.01 ||
+            !window.rootViewController.view) continue;
 
-    for (UIWindowScene *candidateScene in candidateScenes) {
-        CGRect sceneBounds=candidateScene.coordinateSpace.bounds;
+        NSUInteger count=VMLHostedSceneLayerCount(window.rootViewController.view,0);
+        if (count<2) continue;
 
-        for (UIWindow *window in candidateScene.windows) {
-            if (!window || window==gCarPlayOverlayWindow || window.hidden || window.alpha<=0.01 ||
-                !window.rootViewController.view) continue;
+        CGRect frame=window.frame;
+        BOOL insetFromDock=(CGRectGetMinX(frame)>1.0 &&
+                            CGRectGetWidth(frame)<CGRectGetWidth(sceneBounds)-1.0);
+        BOOL alertLevel=(window.windowLevel>=UIWindowLevelAlert);
 
-            // The native Dashboard background window (DBDashboardRootViewController)
-            // can itself carry one or more hosted surfaces (e.g. its own widgets),
-            // but it is NEVER the window a CarBridge-hosted app (DuoDash, YouTube,
-            // TAsmart, ...) renders into. Exclude it explicitly so a single-surface
-            // Dashboard frame can never be mistaken for a real hosted-app window
-            // now that the surface-count threshold below is loosened to >=1.
-            NSString *rootClassName = window.rootViewController ?
-                NSStringFromClass(window.rootViewController.class) : @"";
-            if ([rootClassName isEqualToString:@"DBDashboardRootViewController"]) continue;
+        // The normal Dashboard window can also contain two or more hosted surfaces,
+        // but it is full-screen at level -1. DuoDash's real split window is the
+        // elevated, Dock-inset window (currently x ~= 45, Alert + 70).
+        // Rank window level first, then the split geometry. Hosted-surface count is
+        // only a qualification/tie-breaker and must never make the level -1
+        // Dashboard beat the real DuoDash window.
+        CGFloat geometryScore=(alertLevel?1000000.0:0.0)+
+                              (insetFromDock?100000.0:0.0)+
+                              window.windowLevel;
 
-            NSUInteger count=VMLHostedSceneLayerCount(window.rootViewController.view,0);
-            // Was: `if (count<2) continue;` — that only matched DuoDash's split
-            // (2-app) layout. A CarBridge app mirrored full-screen (DuoDash in
-            // single-app mode, YouTube, TAsmart, ...) hosts exactly ONE
-            // _UISceneLayerHostContainerView, so requiring >=2 silently excluded
-            // every one of them and left them with no working mirror host —
-            // meaning the bubble fell back to the separate overlay window, which
-            // (per the note above) cannot reliably draw above a hosted surface.
-            if (count<1) continue;
-
-            CGRect frame=window.frame;
-            BOOL insetFromDock=(CGRectGetMinX(frame)>1.0 &&
-                                CGRectGetWidth(frame)<CGRectGetWidth(sceneBounds)-1.0);
-            BOOL alertLevel=(window.windowLevel>=UIWindowLevelAlert);
-
-            // The normal Dashboard window can also contain hosted surfaces,
-            // but it is full-screen at level -1 (and is now excluded above by
-            // root-controller class anyway). A real hosted app window is
-            // typically the elevated, Dock-inset window. Rank window level
-            // first, then the split geometry. Hosted-surface count is only a
-            // qualification/tie-breaker and must never make the level -1
-            // Dashboard beat the real hosted-app window.
-            CGFloat geometryScore=(alertLevel?1000000.0:0.0)+
-                                  (insetFromDock?100000.0:0.0)+
-                                  window.windowLevel;
-
-            if (!best || geometryScore>bestGeometryScore ||
-                (fabs(geometryScore-bestGeometryScore)<0.5 && count>bestCount)) {
-                best=window;
-                bestCount=count;
-                bestGeometryScore=geometryScore;
-                bestScene=candidateScene;
-            }
+        if (!best || geometryScore>bestGeometryScore ||
+            (fabs(geometryScore-bestGeometryScore)<0.5 && count>bestCount)) {
+            best=window;
+            bestCount=count;
+            bestGeometryScore=geometryScore;
         }
     }
 
-    if (best && bestScene) {
-        VMLLog(@"[mirror] host search matched scene pid=%@ (preferred pid=%@)",
-               bestScene.session.persistentIdentifier?:@"",
-               preferredScene.session.persistentIdentifier?:@"");
-    }
-
     if (hostCountOut) *hostCountOut=bestCount;
-    if (hostSceneOut) *hostSceneOut=bestScene;
     return best;
 }
 
@@ -647,8 +601,7 @@ static void VMLRemoveDuoDashMirror(NSString *reason) {
 
 static void VMLRefreshDuoDashMirror(UIWindowScene *scene, CGRect sceneBubbleFrame, CGFloat size) {
     NSUInteger hostCount=0;
-    UIWindowScene *hostScene=nil;
-    UIWindow *host=VMLFindDuoDashHostWindowAnyScene(scene,&hostCount,&hostScene);
+    UIWindow *host=VMLFindDuoDashHostWindow(scene,&hostCount);
     UIView *canvas=host.rootViewController.view;
     if (!host || !canvas) { VMLRemoveDuoDashMirror(@"no two-surface host"); return; }
 
@@ -662,8 +615,7 @@ static void VMLRefreshDuoDashMirror(UIWindowScene *scene, CGRect sceneBubbleFram
                NSStringFromClass(host.class),host.windowLevel,NSStringFromCGRect(host.frame),(unsigned long)hostCount);
     }
 
-    CGRect localFrame=[canvas convertRect:sceneBubbleFrame
-                       fromCoordinateSpace:(hostScene?hostScene:scene).coordinateSpace];
+    CGRect localFrame=[canvas convertRect:sceneBubbleFrame fromCoordinateSpace:scene.coordinateSpace];
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     gDuoDashMirrorBubble.frame=localFrame;
     gDuoDashMirrorBubble.layer.cornerRadius=size/2.0;
