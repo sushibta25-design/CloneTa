@@ -560,20 +560,38 @@ static UIWindow *VMLFindDuoDashHostWindow(UIWindowScene *scene, NSUInteger *host
         if (!window || window==gCarPlayOverlayWindow || window.hidden || window.alpha<=0.01 ||
             !window.rootViewController.view) continue;
 
+        // The native Dashboard background window (DBDashboardRootViewController)
+        // can itself carry one or more hosted surfaces (e.g. its own widgets),
+        // but it is NEVER the window a CarBridge-hosted app (DuoDash, YouTube,
+        // TAsmart, ...) renders into. Exclude it explicitly so a single-surface
+        // Dashboard frame can never be mistaken for a real hosted-app window
+        // now that the surface-count threshold below is loosened to >=1.
+        NSString *rootClassName = window.rootViewController ?
+            NSStringFromClass(window.rootViewController.class) : @"";
+        if ([rootClassName isEqualToString:@"DBDashboardRootViewController"]) continue;
+
         NSUInteger count=VMLHostedSceneLayerCount(window.rootViewController.view,0);
-        if (count<2) continue;
+        // Was: `if (count<2) continue;` — that only matched DuoDash's split
+        // (2-app) layout. A CarBridge app mirrored full-screen (DuoDash in
+        // single-app mode, YouTube, TAsmart, ...) hosts exactly ONE
+        // _UISceneLayerHostContainerView, so requiring >=2 silently excluded
+        // every one of them and left them with no working mirror host —
+        // meaning the bubble fell back to the separate overlay window, which
+        // (per the note above) cannot reliably draw above a hosted surface.
+        if (count<1) continue;
 
         CGRect frame=window.frame;
         BOOL insetFromDock=(CGRectGetMinX(frame)>1.0 &&
                             CGRectGetWidth(frame)<CGRectGetWidth(sceneBounds)-1.0);
         BOOL alertLevel=(window.windowLevel>=UIWindowLevelAlert);
 
-        // The normal Dashboard window can also contain two or more hosted surfaces,
-        // but it is full-screen at level -1. DuoDash's real split window is the
-        // elevated, Dock-inset window (currently x ~= 45, Alert + 70).
-        // Rank window level first, then the split geometry. Hosted-surface count is
-        // only a qualification/tie-breaker and must never make the level -1
-        // Dashboard beat the real DuoDash window.
+        // The normal Dashboard window can also contain hosted surfaces,
+        // but it is full-screen at level -1 (and is now excluded above by
+        // root-controller class anyway). A real hosted app window is
+        // typically the elevated, Dock-inset window. Rank window level
+        // first, then the split geometry. Hosted-surface count is only a
+        // qualification/tie-breaker and must never make the level -1
+        // Dashboard beat the real hosted-app window.
         CGFloat geometryScore=(alertLevel?1000000.0:0.0)+
                               (insetFromDock?100000.0:0.0)+
                               window.windowLevel;
