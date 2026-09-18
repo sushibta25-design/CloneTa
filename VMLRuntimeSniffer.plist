@@ -1,0 +1,8 @@
+{
+    Filter = {
+        Bundles = (
+            "vn.vietmap.live"
+        );
+        Mode = "Any";
+    };
+}
