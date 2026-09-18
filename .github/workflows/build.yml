@@ -1,0 +1,49 @@
+name: Build VMLSpeedBubble
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install ldid xz
+
+      - name: Clone RootHide Theos
+        run: |
+          export THEOS=$HOME/theos
+          git clone --recursive https://github.com/roothide/theos.git $THEOS
+
+      - name: Install iOS 16.5 SDK
+        run: |
+          export THEOS=$HOME/theos
+          mkdir -p $THEOS/sdks
+
+          curl -L \
+            https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
+            -o /tmp/iPhoneOS16.5.sdk.tar.xz
+
+          tar -xJf /tmp/iPhoneOS16.5.sdk.tar.xz \
+            -C $THEOS/sdks
+
+          ls -la $THEOS/sdks
+
+      - name: Build RootHide package
+        run: |
+          export THEOS=$HOME/theos
+          make clean package FINALPACKAGE=1
+
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: VMLSpeedBubble-RootHide
+          path: packages/*.deb
